@@ -45,11 +45,9 @@ import org.shanerx.tradeshop.framework.events.SuccessfulTradeEvent;
 import org.shanerx.tradeshop.objects.Shop;
 import org.shanerx.tradeshop.objects.ShopItemStack;
 import org.shanerx.tradeshop.objects.ShopLocation;
-import org.shanerx.tradeshop.utils.JsonConfiguration;
 import org.shanerx.tradeshop.utils.Utils;
 
 import java.util.ArrayList;
-import java.util.Map;
 
 public class ShopTradeListener extends Utils implements Listener {
 
@@ -70,8 +68,7 @@ public class ShopTradeListener extends Utils implements Listener {
             return;
         }
 
-        JsonConfiguration json = new JsonConfiguration(s.getChunk());
-        shop = json.loadShop(new ShopLocation(s.getLocation()));
+        shop = plugin.getDataStorage().loadShopFromSign(new ShopLocation(s.getLocation()));
 
         if (shop == null) {
             s.setLine(0, "");
@@ -92,9 +89,16 @@ public class ShopTradeListener extends Utils implements Listener {
             return;
         }
 
-        if (!shop.isTradeable()) {
-            buyer.sendMessage(Message.SHOP_CLOSED.getPrefixed());
-            return;
+
+        switch (shop.getStatus()) {
+            case CLOSED:
+            case INCOMPLETE:
+                buyer.sendMessage(Message.SHOP_CLOSED.getPrefixed());
+            case OUT_OF_STOCK:
+                buyer.sendMessage(Message.SHOP_EMPTY.getPrefixed());
+                return;
+            case OPEN:
+                break;
         }
 
         chestState = shop.getStorage();
@@ -127,9 +131,7 @@ public class ShopTradeListener extends Utils implements Listener {
         }
 
         if (buyer.isSneaking() && Setting.ALLOW_MULTI_TRADE.getBoolean()) {
-            JsonConfiguration pJson = new JsonConfiguration(buyer.getUniqueId());
-            Map<String, Integer> data = pJson.loadPlayer();
-            multiplier = data.get("multi");
+            multiplier = plugin.getDataStorage().loadPlayer(buyer.getUniqueId()).getMulti();
 
         }
 
@@ -138,7 +140,7 @@ public class ShopTradeListener extends Utils implements Listener {
         if (event.isCancelled()) return;
 
         e.setCancelled(true);
-        shop = json.loadShop(new ShopLocation(s.getLocation()));
+        shop = plugin.getDataStorage().loadShopFromSign(new ShopLocation(s.getLocation()));
 
         switch (canExchangeAll(shop, buyer.getInventory(), multiplier, e.getAction())) {
             case SHOP_NO_PRODUCT:
@@ -184,18 +186,19 @@ public class ShopTradeListener extends Utils implements Listener {
 
         if (shop.getShopType() == ShopType.ITRADE && action.equals(Action.RIGHT_CLICK_BLOCK)) { //ITrade trade
 
-            //Method to find Cost items in player inventory and add to cost array
-            costItems = getItems(playerInventory, shop.getCost(), multiplier);
-            if (costItems.get(0) == null) {
-                ItemStack item = costItems.get(1);
-                buyer.sendMessage(Message.INSUFFICIENT_ITEMS.getPrefixed()
-                        .replace("{ITEM}", item.hasItemMeta() && item.getItemMeta().hasDisplayName() ? item.getItemMeta().getDisplayName() : item.getType().toString())
-                        .replace("{AMOUNT}", String.valueOf(item.getAmount() * multiplier)));
-                return false;
-            }
+            if (!shop.getCost().isEmpty()) {
+                costItems = getItems(playerInventory, shop.getCost(), multiplier);
+                if (costItems.get(0) == null) {
+                    ItemStack item = costItems.get(1);
+                    buyer.sendMessage(Message.INSUFFICIENT_ITEMS.getPrefixed()
+                            .replace("{ITEM}", item.hasItemMeta() && item.getItemMeta().hasDisplayName() ? item.getItemMeta().getDisplayName() : item.getType().toString())
+                            .replace("{AMOUNT}", String.valueOf(item.getAmount() * multiplier)));
+                    return false;
+                }
 
-            for (ItemStack item : costItems) {
-                playerInventory.removeItem(item);
+                for (ItemStack item : costItems) {
+                    playerInventory.removeItem(item);
+                }
             }
 
             for (ShopItemStack item : shop.getProduct()) {
